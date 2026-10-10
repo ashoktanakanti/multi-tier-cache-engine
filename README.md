@@ -1,148 +1,217 @@
-# Multi-Tier Cache Engine: Portfolio Valuation
+# Multi-Tier Cache Engine
 
-A portfolio-valuation API (like what a custody bank shows its clients) with a
-**three-tier cache** in front of the database, plus a React dashboard that
-shows every cache hit, miss and invalidation live.
+**Live demo: https://multi-tier-cache-engine.onrender.com**
+
+> Hosted on Render's free plan. If nobody has used it recently, the first load can take 30–60 seconds while the server wakes up.
+
+A portfolio website for a bank's clients that answers quickly because it **remembers answers it has already worked out**. This is called *caching*. The dashboard lets you watch every request travel through the cache live.
+
+![Dashboard overview](docs/screenshots/overview.png)
+
+---
+
+## The idea in one minute
+
+A bank has 500 clients. Each client has a portfolio of stocks. When a client opens their dashboard, the server must work out a **summary**: total value, profit/loss, top holdings, and 1-year return. Doing that means reading thousands of database rows, which takes **about 35 ms** (around 200 ms on the free Render server).
+
+Clients refresh their dashboards all the time, so recomputing the same summary every time is wasted work. Instead, the summary is saved in three places, from fastest to slowest:
+
+| Level | What it is | Speed | Think of it as |
+|---|---|---|---|
+| **L1** | Memory inside the server: an LRU / LFU cache written from scratch | ~0.01 ms | Notes on your desk |
+| **L2** | Redis, a cache shared by all servers | < 1 ms | A shared whiteboard |
+| **L3** | The SQL database, which always has the correct data | ~35 ms | The filing cabinet in the basement |
 
 ```
- request ──▶  L1  in-memory LRU/LFU     ~10 µs     (built from scratch: hash map + linked list)
-                │ miss
-                ▼
-              L2  Redis                   < 1 ms    (shared by all server processes, TTL)
-                │ miss
-                ▼
-              L3  SQLite database         ~25–45 ms (source of truth)
+ Read a summary:   check L1 → not there? check L2 → not there? compute it from L3
+                   then save a copy in L2 and L1, so next time it's instant.
 
- On the way back up, the value is stored in L2 and L1.
- On a write (trade / price change), the DB is updated first, then the cached copy is deleted.
+ Change data:      update the database first, then DELETE the saved copies,
+                   so nobody ever sees an old (stale) number.
 ```
 
-## Why cache this at all?
+**Result:** with realistic traffic, about **70% of requests never touch the database**, and a cached answer is **thousands of times faster** than computing it.
 
-A cache only earns its place if the data is **expensive to compute**, **read
-much more often than it changes**, and **changes at moments we control**.
-An account summary meets all three:
+---
 
-| | |
+## What you can do on the website
+
+The **Playground** panel on the Overview page has four tabs. Every number you see is measured live from the real server; nothing is simulated.
+
+### 1. READ KEY: read a portfolio through the cache
+
+Enter an account number (1–500) and click **Read key**.
+
+**First read: a miss.** Neither cache has it, so it is computed from the database (L3) and saved in L2 and L1. The table shows each step and how long it took. Almost all of the time is the database query.
+
+![Read: cache miss](docs/screenshots/read-miss.png)
+
+**Click "Read again": a hit.** Now L1 answers in microseconds. One step, no database.
+
+![Read: cache hit](docs/screenshots/read-hit.png)
+
+### 2. WRITE: make a trade
+
+Buy or sell shares for an account. The trade is saved in the database inside a **transaction** (all or nothing), then the cached summary for **that account only** is deleted from L1 and L2. Click **Trace next read** to see the next read go to the database again, so the new numbers appear immediately.
+
+Selling more shares than the account owns is rejected, and nothing changes.
+
+![Write: trade and invalidate](docs/screenshots/write.png)
+
+### 3. PRICE: change a stock's price
+
+Pick a stock and set a new price. Every client who owns that stock now has a different portfolio value, so the cached summary of **every one of those accounts** is deleted. Accounts that don't own it stay cached.
+
+![Price update](docs/screenshots/price.png)
+
+### 4. STATS: send lots of traffic
+
+Fire 100–1,000 real requests and watch the hit ratio climb.
+- **Zipf (hot set):** a few accounts get most of the traffic, like real life. The hit ratio climbs to about 70–80%.
+- **Uniform:** every account is equally likely, so the cache helps much less. This shows when caching *isn't* worth it.
+
+![Stats: traffic generator](docs/screenshots/stats.png)
+
+### Also on the site
+
+| Page | What it shows |
 |---|---|
-| **Expensive** | Joins every holding to its latest price and adds up a year of daily values (~35k holdings × 390k price rows in the dataset). About 25–45 ms per account. |
-| **Read a lot** | Dashboards and reports read the same accounts repeatedly. |
-| **Changes at known moments** | Only when the account trades or a price is updated. Both go through our service, so we know exactly which keys to delete. |
+| **Overview** | Live totals (requests, hit ratio, latency), the three cache tiers, and the **Engine log**: every HIT, MISS, EVICT (cache full, oldest/least-used item removed) and INVAL (item deleted after a write) |
+| **Accounts** | All 500 accounts. An amber dot means "this one is in L1 right now". Click **Trace** to read it. |
+| **Benchmark** | Measured results comparing no cache, LRU and LFU (see below) |
+| **Design notes** | Why each design choice was made |
+| **`/docs`** | The API's built-in interactive documentation ([open it](https://multi-tier-cache-engine.onrender.com/docs)) |
 
-When it would **not** be worth it: live tick-by-tick prices, random access
-over far more keys than fit in the cache, write-heavy data, or cheap queries.
-The benchmark below shows two of these cases.
+![Accounts page](docs/screenshots/accounts.png)
 
-## Benchmark results
+---
 
-`python benchmark.py`: 1,000 operations per run over 500 accounts, L1 capacity 64, warmed-up cache.
+## Does the cache actually help? (benchmark)
 
-| Traffic pattern | Setup | Hit ratio | DB queries | Typical read (p50) |
+`python benchmark.py` runs 1,000 operations over 500 accounts with a small 64-item L1 cache, in three situations:
+
+| Traffic pattern | Setup | Hit ratio | Database queries | Typical read |
 |---|---|---|---|---|
-| **Popular accounts** (Zipf, realistic) | no cache | 0.0% | 1000 / 1000 | 36 ms |
-|  | L1 LRU | 68.6% | 314 / 1000 | **0.012 ms** |
-|  | L1 LFU | 74.3% | 257 / 1000 | **0.013 ms** |
-| **Random accounts** (uniform) | no cache | 0.0% | 1000 / 1000 | 21 ms |
-|  | L1 LRU | 12.9% | 871 / 1000 | 20 ms |
-|  | L1 LFU | 12.6% | 874 / 1000 | 19 ms |
-| **50% trades** | no cache | 0.0% | 507 / 507 | 23 ms |
-|  | L1 LRU | 37.5% | 317 / 507 | 15 ms |
-|  | L1 LFU | 37.5% | 317 / 507 | 15 ms |
+| **Popular accounts** (realistic) | no cache | 0% | 1000 / 1000 | 36 ms |
+| | L1 LRU | 68.6% | 314 / 1000 | **0.012 ms** |
+| | L1 LFU | 74.3% | 257 / 1000 | **0.013 ms** |
+| **Random accounts** | no cache | 0% | 1000 / 1000 | 21 ms |
+| | L1 LRU | 12.9% | 871 / 1000 | 20 ms |
+| | L1 LFU | 12.6% | 874 / 1000 | 19 ms |
+| **Half the operations are trades** | no cache | 0% | 507 / 507 | 23 ms |
+| | L1 LRU | 37.5% | 317 / 507 | 15 ms |
+| | L1 LFU | 37.5% | 317 / 507 | 15 ms |
 
-What the numbers show:
-- With realistic traffic the cache removes **~70% of database queries**, and a cache hit is about **3,000× faster** than a database query.
-- **LFU beats LRU** when a stable set of accounts is popular (74% vs 69%), because one-off reads can't push the popular accounts out.
-- With **random access**, only 64 of 500 accounts fit in L1, so the cache barely helps.
-- With **lots of writes**, every trade deletes a cached entry, so hits drop.
-- Wall-clock times vary by ±50% between runs on a laptop. Hit ratio and DB query counts don't vary, so treat those as the main evidence.
+What this shows:
+- **Realistic traffic:** the cache avoids ~70% of database work, and a hit is ~3,000× faster.
+- **LFU beats LRU** when the same accounts stay popular, because one-off reads can't push popular accounts out.
+- **Random traffic:** only 64 of 500 accounts fit, so the cache barely helps.
+- **Many writes:** each trade deletes a cached summary, so there are fewer hits.
 
-## Project structure
+Timings vary between runs on a laptop; hit ratio and query counts don't, so those are the reliable numbers.
+
+![Benchmark page](docs/screenshots/benchmark.png)
+
+---
+
+## How it's built
+
+| Part | Technology | Where |
+|---|---|---|
+| L1 cache (LRU and LFU, written from scratch) | Python: hash map + doubly linked list / frequency buckets, O(1) | `cache_engine/lru.py`, `cache_engine/lfu.py` |
+| L2 cache | Redis (JSON values, 5-minute expiry) | `cache_engine/redis_tier.py` |
+| Cache logic (L1 → L2 → L3) | Python | `cache_engine/tiered.py` |
+| Database | SQLite, plain SQL | `portfolio/schema.sql`, `portfolio/db.py` |
+| Business logic | Python | `portfolio/service.py` |
+| REST API | FastAPI | `portfolio/api.py` |
+| Dashboard | React + Tailwind CSS | `frontend/` |
+| Tests | pytest (46 tests) + GitHub Actions | `tests/`, `.github/workflows/` |
+| Deployment | Docker on Render | `Dockerfile`, `render.yaml` |
 
 ```
-cache_engine/           reusable cache library (no business logic)
-  lru.py                LRU cache: dict + doubly linked list, O(1)
-  lfu.py                LFU cache: frequency buckets, O(1)
-  redis_tier.py         Redis wrapper: JSON + TTL, fail-open on errors
-  tiered.py             cache-aside across L1 -> L2 -> DB, stats, event log
-portfolio/
-  schema.sql            accounts, securities, prices, holdings, trades
-  seed.py               generates 500 accounts / 1,500 securities / 1 year of prices
-  db.py                 all SQL lives here
-  service.py            account summary + trade / price update (with invalidation)
-  api.py                FastAPI REST endpoints
-frontend/               React + Tailwind dashboard
-tests/                  pytest: cache structures, tiers, service, API
-benchmark.py            the numbers above
-Dockerfile, render.yaml  one-service deployment on Render
+cache_engine/      the cache itself (knows nothing about portfolios)
+portfolio/         database, business logic and API
+frontend/          React dashboard
+tests/             automated tests
+benchmark.py       the performance comparison above
+data/              benchmark results (the database is generated, not stored)
+docs/screenshots/  images used in this README
 ```
 
-## Running it
+---
+
+## Run it on your computer
+
+You need **Python 3.11+** and **Node.js 18+**.
 
 ```bash
+# 1. Set up Python
 python -m venv .venv
-.venv\Scripts\activate            # Windows  (macOS/Linux: source .venv/bin/activate)
+.venv\Scripts\activate              # Mac/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 
-python -m portfolio.seed          # builds data/portfolio.db (~5 s)
-pytest                            # 46 tests
+# 2. Create the demo database (500 accounts, 1 year of prices, ~5 seconds)
+python -m portfolio.seed
 
-# API, with a fake in-memory Redis (no Redis install needed)
-set REDIS_URL=memory://           # PowerShell: $env:REDIS_URL="memory://"
+# 3. Run the tests (should say "46 passed")
+pytest
+
+# 4. Start the API, using a fake in-memory Redis so you don't need to install Redis
+#    Windows PowerShell:  $env:REDIS_URL="memory://"
+#    Mac/Linux:           export REDIS_URL=memory://
 uvicorn portfolio.api:app --port 8000
 
-# dashboard (second terminal)
+# 5. In a second terminal, start the dashboard
 cd frontend
 npm install
-npm run dev                       # http://localhost:5173
+npm run dev                          # open http://localhost:5173
 ```
 
-To use a real Redis, set `REDIS_URL=redis://localhost:6379/0`. Leave
-`REDIS_URL` unset to run with L1 only. Use `CACHE_POLICY=lfu` to switch L1 to LFU.
+**Settings** (environment variables):
+- `REDIS_URL`: `memory://` (fake Redis), `redis://localhost:6379/0` (real Redis), or not set (L1 only)
+- `CACHE_POLICY`: `lru` (default) or `lfu`
+- `L1_CAPACITY`: how many summaries L1 can hold (default 256)
 
-## Deploying to Render
+To reset the demo data, run `python -m portfolio.seed` again and restart the API.
 
-The repo includes a `Dockerfile` and a `render.yaml` blueprint. Everything runs
-as **one web service**: the Docker build compiles the React app, installs the
-Python API, and seeds the database; then FastAPI serves both the API and the
-dashboard from the same URL.
+---
 
-1. On [render.com](https://render.com): **New → Blueprint**, then pick this repository.
-2. Render reads `render.yaml` and creates the free web service. The first build takes a few minutes.
-3. Open the service URL. The dashboard loads at `/` and the API docs at `/docs`.
+## Deploy your own copy on Render
 
-Notes:
-- The free plan has no Redis, so L2 uses the in-memory fake (`REDIS_URL=memory://`). For a real L2, create a Render **Key Value** instance and set `REDIS_URL` to its internal URL.
-- The free plan's disk resets on every deploy or restart, so the demo database is rebuilt fresh each time. Fine for a demo.
-- Free services sleep after ~15 minutes idle; the first request after that takes ~30–60 s.
+1. Fork this repo, sign in to [render.com](https://render.com) with GitHub.
+2. **New → Blueprint** → choose the repo → **Apply**.
+3. Render builds the `Dockerfile` (frontend + API + database in one service) and gives you a URL.
 
-## API
+On the free plan there is no real Redis, so L2 uses the in-memory fake. Data resets whenever the server restarts.
+
+---
+
+## API reference
 
 | Method | Path | What it does |
 |---|---|---|
-| GET | `/accounts/{id}/summary` | Account summary through the cache. Response header `X-Cache: L1 / L2 / DB` |
-| GET | `/cache/lookup/{id}` | Same read, plus each tier it checked and how long each step took |
-| POST | `/accounts/{id}/trades` | Buy/sell. Updates the DB, then invalidates that account |
-| PUT | `/securities/{ticker}/price` | Price correction. Invalidates every account holding it |
-| GET | `/cache/stats` | Hits per tier, hit ratio, latency, sizes |
-| GET | `/cache/events` | Recent cache events (used by the live log) |
-| DELETE | `/cache` | Clear L1 and reset stats |
+| GET | `/accounts/{id}/summary` | Portfolio summary through the cache. The `X-Cache` header says who answered: `L1`, `L2` or `DB` |
+| GET | `/cache/lookup/{id}` | Same read, plus every step and its timing (used by READ KEY) |
+| POST | `/accounts/{id}/trades` | Buy or sell. Body: `{"ticker": "MOKT", "side": "BUY", "quantity": 100}` |
+| PUT | `/securities/{ticker}/price` | Change a price. Body: `{"close": 700}` |
+| GET | `/cache/stats` | Hits per tier, hit ratio, latencies, cache sizes |
+| GET | `/cache/events` | Recent cache events (the Engine log) |
+| DELETE | `/cache` | Empty L1 and reset the counters |
 | GET | `/accounts`, `/securities?q=`, `/benchmark`, `/health` | Supporting endpoints |
 
-Interactive docs: http://localhost:8000/docs
+---
 
-## Design decisions (interview notes)
+## Design decisions
 
-- **Why two cache tiers?** L1 is fastest (no network) but private to one server process. L2 (Redis) is shared by every process and survives restarts.
-- **LRU vs LFU?** LRU adapts quickly when what's popular changes. LFU protects consistently popular keys from bursts of one-off reads. Both are O(1). The benchmark shows LFU winning on a stable popular set.
-- **Cache-aside** (not write-through): the cache only stores what someone actually read, so unused accounts don't waste memory.
-- **Delete on write** (not update): after a trade commits, the cached copy is deleted and the next read rebuilds it from the database, so a stale or half-updated copy can't be served.
-- **TTL on Redis** (5 min): a safety net if an invalidation is ever missed.
-- **Fail-open**: if Redis is down, its errors count as misses and requests go to the database. The cache makes the app faster but is never required for it to work.
-- **Thread safety**: FastAPI runs requests on several threads, so each L1 operation holds a lock, and a test runs 8 threads against it.
-- **Transactions**: a trade updates the holding and writes the audit row in one SQL transaction. Overselling rolls everything back.
+- **Why two caches?** L1 is fastest but belongs to one server. L2 (Redis) is shared by all servers and survives restarts.
+- **LRU vs LFU:** LRU keeps what was used *recently* and adapts quickly. LFU keeps what is used *most often* and resists one-off bursts. Both run in O(1).
+- **Cache-aside:** the cache is only filled when someone reads, so unused accounts take no space.
+- **Delete on write:** after a change, the cached copy is deleted, not edited. The next read rebuilds it from the database, so it is always correct.
+- **Expiry (TTL):** Redis entries expire after 5 minutes, as a safety net.
+- **Fail-open:** if Redis goes down, the app keeps working by reading from the database.
+- **Thread safety:** the server handles several requests at once, so L1 uses a lock.
+- **Transactions:** a trade updates the holding and records the trade together, or not at all.
 
-## Possible extensions
+**When caching is NOT worth it:** live tick-by-tick prices, random access over far more data than fits in the cache, data that changes on almost every read, or queries that are already fast.
 
-- **Request coalescing**: if 100 requests miss the same key at once, run the database query once and share the result.
-- **Redis pub/sub invalidation**: so a write on one server clears the L1 on every other server.
-- A real Redis server in the benchmark to measure L2 latency over the network.
+**Possible next steps:** request coalescing (when many requests miss the same key at once, query the database only once), and Redis pub/sub so a write on one server clears L1 on every other server.
