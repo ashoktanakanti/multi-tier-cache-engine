@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+/* Design tokens: obsidian surfaces, slate hairlines, one amber accent. */
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --color-ink-950: #09090b;   /* app background */
+  --color-ink-900: #0e0e11;   /* panels */
+  --color-ink-850: #131317;   /* raised rows / inputs */
+  --color-ink-800: #18181b;   /* hover */
+  --color-line: #27272a;      /* hairline borders */
+  --color-line-strong: #3f3f46;
+
+  --color-fg: #fafafa;
+  --color-fg-muted: #a1a1aa;
+  --color-fg-dim: #71717a;
+  --color-fg-faint: #52525b;
+
+  --color-accent: #f59e0b;    /* amber: hits, active state, primary actions */
+  --color-accent-dim: #78350f;
+  --color-up: #10b981;        /* P&L only */
+  --color-down: #f43f5e;      /* P&L and errors only */
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    background: var(--color-ink-950);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  .font-mono { font-feature-settings: "zero", "tnum"; }
+  ::selection { background: #f59e0b33; }
+  * { scrollbar-width: thin; scrollbar-color: #3f3f46 transparent; }
+  input, select, button { font: inherit; }
+  :focus-visible { outline: 1px solid var(--color-accent); outline-offset: 1px; }
+}
+
+@keyframes step-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: none; }
+}
+.animate-step-in { animation: step-in 180ms ease-out both; }
+
+@keyframes flash {
+  from { background: #f59e0b1f; }
+  to { background: transparent; }
+}
+.animate-flash { animation: flash 900ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-step-in, .animate-flash { animation: none; }
+}

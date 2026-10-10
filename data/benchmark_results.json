@@ -1,0 +1,86 @@
+{
+  "generated_at": "2026-10-11T00:41:16",
+  "operations": 1000,
+  "l1_capacity": 64,
+  "accounts": 500,
+  "results": {
+    "popular": {
+      "no_cache": {
+        "reads": 1000,
+        "db_queries": 1000,
+        "hit_ratio": 0.0,
+        "avg_ms": 49.464,
+        "p50_ms": 35.9712,
+        "total_s": 49.46
+      },
+      "lru": {
+        "reads": 1000,
+        "db_queries": 314,
+        "hit_ratio": 0.686,
+        "avg_ms": 5.952,
+        "p50_ms": 0.0119,
+        "total_s": 5.95
+      },
+      "lfu": {
+        "reads": 1000,
+        "db_queries": 257,
+        "hit_ratio": 0.743,
+        "avg_ms": 5.138,
+        "p50_ms": 0.0131,
+        "total_s": 5.14
+      }
+    },
+    "random": {
+      "no_cache": {
+        "reads": 1000,
+        "db_queries": 1000,
+        "hit_ratio": 0.0,
+        "avg_ms": 20.864,
+        "p50_ms": 20.7458,
+        "total_s": 20.86
+      },
+      "lru": {
+        "reads": 1000,
+        "db_queries": 871,
+        "hit_ratio": 0.129,
+        "avg_ms": 33.24,
+        "p50_ms": 19.7016,
+        "total_s": 33.24
+      },
+      "lfu": {
+        "reads": 1000,
+        "db_queries": 874,
+        "hit_ratio": 0.126,
+        "avg_ms": 18.416,
+        "p50_ms": 19.1082,
+        "total_s": 18.42
+      }
+    },
+    "writes": {
+      "no_cache": {
+        "reads": 507,
+        "db_queries": 507,
+        "hit_ratio": 0.0,
+        "avg_ms": 24.821,
+        "p50_ms": 22.7895,
+        "total_s": 12.58
+      },
+      "lru": {
+        "reads": 507,
+        "db_queries": 317,
+        "hit_ratio": 0.375,
+        "avg_ms": 14.935,
+        "p50_ms": 14.9918,
+        "total_s": 7.57
+      },
+      "lfu": {
+        "reads": 507,
+        "db_queries": 317,
+        "hit_ratio": 0.375,
+        "avg_ms": 46.162,
+        "p50_ms": 15.2002,
+        "total_s": 23.4
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: multi-tier-cache-engine
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: REDIS_URL
+        value: memory://
+      - key: CACHE_POLICY
+        value: lru
