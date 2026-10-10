@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+redis
+# in-memory fake Redis for local dev (REDIS_URL=memory://) and tests
+fakeredis
+# tests
+pytest
+httpx
