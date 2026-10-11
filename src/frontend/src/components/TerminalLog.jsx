@@ -7,8 +7,8 @@ const FILTERS = {
   all: () => true,
   hits: (e) => e.kind === 'hit',
   db: (e) => e.kind === 'load',
-  evict: (e) => e.kind === 'evict' || e.kind === 'clear',
-  writes: (e) => e.kind === 'invalidate',
+  evict: (e) => ['evict', 'expire', 'clear'].includes(e.kind),
+  writes: (e) => e.kind === 'invalidate' || e.kind === 'stale_skip',
 }
 
 const KINDS = {
@@ -17,6 +17,8 @@ const KINDS = {
   evict: { tag: 'EVICT', tone: 'text-fg-muted', detail: (e) => e.detail },
   invalidate: { tag: 'INVAL', tone: 'text-fg', detail: () => 'write committed → cached copy deleted' },
   clear: { tag: 'CLEAR', tone: 'text-fg-muted', detail: (e) => e.detail },
+  expire: { tag: 'EXPIRE', tone: 'text-fg-muted', detail: (e) => `L1 copy ${e.detail} → removed` },
+  stale_skip: { tag: 'GUARD', tone: 'text-accent', detail: (e) => e.detail },
 }
 
 function describe(e) {

@@ -77,7 +77,8 @@ def main():
                 if setup == "no_cache":
                     service = PortfolioService(cache=None)
                 else:
-                    service = PortfolioService(TieredCache(l1_capacity=L1_CAPACITY, policy=setup))
+                    # L1 expiry off, so the comparison measures only LRU vs LFU eviction.
+                    service = PortfolioService(TieredCache(l1_capacity=L1_CAPACITY, policy=setup, l1_ttl=None))
                     run(service, make_operations(pattern, account_ids, seed=99), tickers)  # warm-up
 
                 r = run(service, make_operations(pattern, account_ids, seed=7), tickers)

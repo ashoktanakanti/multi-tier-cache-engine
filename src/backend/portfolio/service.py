@@ -46,7 +46,8 @@ class PortfolioService:
         security = db.get_security(ticker)
         if security is None:
             raise db.InvalidRequest(f"unknown ticker {ticker!r}")
-        price = price or db.latest_close(security["security_id"])
+        if price is None:
+            price = db.latest_close(security["security_id"])
 
         start = time.perf_counter()
         trade_id = db.record_trade(account_id, security["security_id"], side, quantity, price)

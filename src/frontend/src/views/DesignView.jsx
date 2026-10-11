@@ -14,7 +14,10 @@ const DECISIONS = [
   ['Cache-aside', 'The cache is only filled when someone reads, so accounts nobody looks at never take up space. The cost is a slow first read.'],
   ['Delete on write', 'After a trade commits, we delete the cached summary instead of updating it. The next read rebuilds it from the database, so it can’t be wrong.'],
   ['TTL on Redis', 'Every Redis entry expires after 5 minutes, as a safety net in case an invalidation is ever missed.'],
-  ['Fail-open', 'If Redis is down, its errors count as cache misses and requests go to the database. The cache should speed the app up, never break it.'],
+  ['Fail-open', 'If Redis is down, its errors count as cache misses and requests go to the database. Redis calls time out after 50 ms, so a hung Redis is never slower than the database itself.'],
+  ['L1 expiry (30 s)', 'A write can only clear the L1 of the server that handled it. Other servers’ copies expire within 30 seconds, so that’s the longest any server can show an old value.'],
+  ['Version number per key', 'If a read is still querying when a write happens, it could save the old result after the write cleared the cache. Every write bumps the key’s version, and a read that sees the version changed undoes its save.'],
+  ['Single-flight', 'If many requests miss the same key at once, only the first one queries the database. The rest wait and reuse its result: 20 misses become 1 query.'],
 ]
 
 const NOT = [
@@ -25,8 +28,9 @@ const NOT = [
 ]
 
 const FUTURE = [
-  'Request coalescing: when many requests miss the same key at once, run the DB query only once.',
-  'Redis pub/sub so every server clears its own L1 when another server writes.',
+  'The live demo runs one server with an in-memory fake Redis, so L2 is not really shared there. With several servers and a real Redis, L2 is what lets them share one cache.',
+  'Cross-server staleness is bounded by the 30 s L1 expiry, not removed. Redis pub/sub could broadcast invalidations so every server clears its L1 immediately.',
+  'LFU counts never decay: an account that was popular last week can keep its place. Ageing the counts would fix that.',
 ]
 
 export default function DesignView() {
@@ -63,10 +67,10 @@ export default function DesignView() {
           ))}
         </dl>
         <div className="border-t border-line px-3 py-2.5">
-          <div className="text-[10px] uppercase tracking-[0.1em] text-fg-faint mb-1.5">Possible next steps</div>
+          <div className="text-[10px] uppercase tracking-[0.1em] text-fg-faint mb-1.5">Known limitations (and what would fix them)</div>
           <ul className="space-y-1">
             {FUTURE.map((n) => (
-              <li key={n} className="text-[12px] text-fg-muted leading-5 flex gap-2"><span className="text-fg-faint font-mono">+</span>{n}</li>
+              <li key={n} className="text-[12px] text-fg-muted leading-5 flex gap-2"><span className="text-fg-faint font-mono">!</span>{n}</li>
             ))}
           </ul>
         </div>
