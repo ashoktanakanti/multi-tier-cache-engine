@@ -79,6 +79,7 @@ export default function Sidebar({ view, onNavigate, health, stats, open, onClose
             {[
               ['policy', health?.policy?.toUpperCase() ?? '—'],
               ['l1.capacity', stats?.l1?.capacity ?? '—'],
+              ['l1.ttl', stats?.l1?.ttl ? `${stats.l1.ttl}s` : 'off'],
               ['l2.ttl', stats?.l2 ? `${stats.l2.ttl}s` : 'off'],
               ['database', 'SQLite'],
             ].map(([k, v]) => (

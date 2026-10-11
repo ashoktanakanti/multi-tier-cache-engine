@@ -16,9 +16,9 @@
 
 </div>
 
-| ~70% | ~3,000× | 46 |
+| ~70% | 3 | 51 |
 |:---:|:---:|:---:|
-| fewer database queries with realistic traffic | faster: cache hit vs database query | automated tests, run on every push |
+| fewer database queries with realistic traffic | classic caching bugs handled: stale reads, race conditions, stampedes | automated tests, run on every push |
 
 > The live demo is hosted on Render's free plan. If nobody has used it recently, the first load can take 30–60 seconds while the server wakes up.
 
@@ -48,7 +48,7 @@ Clients refresh their dashboards all the time, so recomputing the same summary e
                    so nobody ever sees an old (stale) number.
 ```
 
-**Result:** with realistic traffic, about **70% of requests never touch the database**, and a cached answer is **thousands of times faster** than computing it.
+**Result:** with realistic traffic, about **70% of requests never touch the database**. Those requests skip the 35 ms query and are answered from memory instead.
 
 ---
 
@@ -121,7 +121,7 @@ Fire 100–1,000 real requests and watch the hit ratio climb.
 | | L1 LFU | 37.5% | 317 / 507 | 15 ms |
 
 What this shows:
-- **Realistic traffic:** the cache avoids ~70% of database work, and a hit is ~3,000× faster.
+- **Realistic traffic:** the cache avoids ~70% of database work. That is the number that matters; comparing a single memory lookup to a SQL query always gives a huge ratio, so it isn't a fair headline.
 - **LFU beats LRU** when the same accounts stay popular, because one-off reads can't push popular accounts out.
 - **Random traffic:** only 64 of 500 accounts fit, so the cache barely helps.
 - **Many writes:** each trade deletes a cached summary, so there are fewer hits.
@@ -143,7 +143,7 @@ Timings vary between runs on a laptop; hit ratio and query counts don't, so thos
 | Business logic | Python | `src/backend/portfolio/service.py` |
 | REST API | FastAPI | `src/backend/portfolio/api.py` |
 | Dashboard | React + Tailwind CSS | `src/frontend/` |
-| Tests | pytest (46 tests) + GitHub Actions | `tests/`, `.github/workflows/` |
+| Tests | pytest (51 tests) + GitHub Actions | `tests/`, `.github/workflows/` |
 | Deployment | Docker on Render | `Dockerfile`, `render.yaml` |
 
 ```
@@ -168,7 +168,7 @@ src/
         ├── views/            Accounts, Benchmark, Design notes pages
         └── lib/api.js        calls to the backend
 
-tests/                        46 automated tests (pytest)
+tests/                        51 automated tests (pytest)
 docs/screenshots/             images used in this README
 Dockerfile, render.yaml       deployment on Render
 ```
@@ -185,7 +185,7 @@ python -m venv .venv
 .venv\Scripts\activate              # Mac/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Run the tests from the project root (should say "46 passed")
+# 2. Run the tests from the project root (should say "51 passed")
 pytest
 
 # 3. Go to the backend folder and create the demo database (~5 seconds)
@@ -207,6 +207,7 @@ npm run dev                          # open http://localhost:5173
 - `REDIS_URL`: `memory://` (fake Redis), `redis://localhost:6379/0` (real Redis), or not set (L1 only)
 - `CACHE_POLICY`: `lru` (default) or `lfu`
 - `L1_CAPACITY`: how many summaries L1 can hold (default 256)
+- `L1_TTL`: seconds before an L1 copy expires (default 30)
 
 To reset the demo data, run `python -m portfolio.seed` again (inside `src/backend`) and restart the API.
 To rerun the benchmark: `python benchmark.py` inside `src/backend`.
@@ -219,7 +220,7 @@ To rerun the benchmark: `python benchmark.py` inside `src/backend`.
 2. **New → Blueprint** → choose the repo → **Apply**.
 3. Render builds the `Dockerfile` (frontend + API + database in one service) and gives you a URL.
 
-On the free plan there is no real Redis, so L2 uses the in-memory fake. Data resets whenever the server restarts.
+On the free plan there is no real Redis, so L2 uses the in-memory fake (see *Known limitations*). Data resets whenever the server restarts.
 
 ---
 
@@ -245,10 +246,24 @@ On the free plan there is no real Redis, so L2 uses the in-memory fake. Data res
 - **Cache-aside:** the cache is only filled when someone reads, so unused accounts take no space.
 - **Delete on write:** after a change, the cached copy is deleted, not edited. The next read rebuilds it from the database, so it is always correct.
 - **Expiry (TTL):** Redis entries expire after 5 minutes, as a safety net.
-- **Fail-open:** if Redis goes down, the app keeps working by reading from the database.
+- **Fail-open:** if Redis goes down, the app keeps working by reading from the database. Redis calls time out after 50 ms, so a hung Redis is never slower than the database it is supposed to save us from.
 - **Thread safety:** the server handles several requests at once, so L1 uses a lock.
 - **Transactions:** a trade updates the holding and records the trade together, or not at all.
 
 **When caching is NOT worth it:** live tick-by-tick prices, random access over far more data than fits in the cache, data that changes on almost every read, or queries that are already fast.
 
-**Possible next steps:** request coalescing (when many requests miss the same key at once, query the database only once), and Redis pub/sub so a write on one server clears L1 on every other server.
+### Three caching problems, and how this project handles them
+
+These are the bugs most caches get wrong. Each has a test in `tests/test_tiered.py` that reproduces the problem; the test fails if the fix is removed.
+
+| Problem | What goes wrong | Fix |
+|---|---|---|
+| **Stale copies on other servers** | A write clears the cache on the server that handled it, but another server still has the old summary in its L1. | L1 copies **expire after 30 seconds**, so no server can show an old value for longer than that. |
+| **Read/write race** | A read starts querying, a trade commits and clears the cache, then the slow read finishes and saves its *old* result, so the cache is stale again. | Each key has a **version number** that every write increases. A read remembers the version it started with; if it changed, the read undoes its save. |
+| **Cache stampede** | 20 requests miss the same key at the same moment, so the same 35 ms query runs 20 times. | **Single-flight:** the first request runs the query; the others wait for it and reuse the result. 20 misses → 1 query. |
+
+### Known limitations
+
+- **The live demo's L2 isn't really shared.** Render's free plan runs one server, and the fake Redis lives inside that same server, so in the demo L2 is just a slower copy of L1. L2 earns its place when several servers run against one real Redis; set `REDIS_URL` to a real Redis to try that.
+- **Cross-server staleness is limited, not removed.** Other servers can show old data for up to 30 seconds. Broadcasting invalidations over Redis pub/sub would make it immediate.
+- **LFU counts never decay.** An account that was very popular last week can keep its place in an LFU cache. Gradually ageing the counts would fix this.

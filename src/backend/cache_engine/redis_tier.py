@@ -31,7 +31,10 @@ class RedisTier:
             import fakeredis
 
             return cls(fakeredis.FakeRedis(server=fakeredis.FakeServer(), decode_responses=True), ttl)
-        client = redis.Redis.from_url(url, decode_responses=True, socket_timeout=0.5)
+        # Short timeouts: a hung Redis must not be slower than just asking the
+        # database (~35 ms), or the cache would make things worse, not better.
+        client = redis.Redis.from_url(url, decode_responses=True,
+                                      socket_timeout=0.05, socket_connect_timeout=0.05)
         return cls(client, ttl)
 
     def get(self, key):

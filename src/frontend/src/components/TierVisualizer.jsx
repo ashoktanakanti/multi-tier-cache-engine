@@ -65,13 +65,13 @@ export default function TierVisualizer({ stats, redis, flashTier }) {
       <TierRow
         code="L1" icon={Cpu} name="In-memory cache" highlight={flashTier === 'l1'}
         tech={`hand-built ${policy} · hash map + linked list · inside the API process`}
-        capacity={{ value: l1?.size, max: l1?.capacity, label: `${fmtInt(l1?.size)} / ${fmtInt(l1?.capacity)} entries` }}
+        capacity={{ value: l1?.size, max: l1?.capacity, label: `${fmtInt(l1?.size)} / ${fmtInt(l1?.capacity)} entries${l1?.ttl ? ` · expire after ${l1.ttl}s` : ''}` }}
         served={hits.l1 ?? 0} servedLabel="hits" reached={total} lat={lat.l1}
       />
       <Connector />
       <TierRow
         code="L2" icon={Server} name="Redis (shared)" disabled={!l2} highlight={flashTier === 'l2'}
-        tech={redis === 'in-memory fake' ? 'fake in-memory Redis (dev mode — no network delay)' : 'Redis · JSON values · TTL expiry'}
+        tech={redis === 'in-memory fake' ? 'in-memory fake Redis — demo runs one server, so L2 is not shared here' : 'Redis · JSON values · TTL expiry'}
         capacity={{ value: 0, max: 0, label: l2 ? `${fmtInt(l2.keys)} ${l2.keys === 1 ? 'key' : 'keys'} · TTL ${l2.ttl}s` : 'not configured — set REDIS_URL' }}
         served={hits.l2 ?? 0} servedLabel="hits" reached={reachedL2} lat={lat.l2}
       />

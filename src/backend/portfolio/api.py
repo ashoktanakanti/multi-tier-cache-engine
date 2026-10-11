@@ -22,6 +22,7 @@ Settings (environment variables):
                 Not set = no L2.
   CACHE_POLICY  lru (default) or lfu
   L1_CAPACITY   default 256
+  L1_TTL        seconds before an L1 entry expires, default 30
 
 Run:  uvicorn portfolio.api:app --reload --port 8000
 """
@@ -51,6 +52,7 @@ def create_service():
         l1_capacity=int(os.environ.get("L1_CAPACITY", 256)),
         policy=os.environ.get("CACHE_POLICY", "lru"),
         l2=l2,
+        l1_ttl=float(os.environ.get("L1_TTL", 30)),
     )
     return PortfolioService(cache)
 
