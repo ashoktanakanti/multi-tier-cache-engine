@@ -2,7 +2,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
-data/portfolio.db
-frontend/node_modules/
-frontend/dist/
+src/backend/data/portfolio.db
+src/frontend/node_modules/
+src/frontend/dist/
 .claude/

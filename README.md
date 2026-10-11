@@ -1,8 +1,26 @@
+<div align="center">
+
 # Multi-Tier Cache Engine
 
-**Live demo: https://multi-tier-cache-engine.onrender.com**
+**A three-tier cache (in-memory LRU/LFU → Redis → SQL) behind a portfolio-valuation API,<br>with a live dashboard that traces every hit, miss and invalidation.**
 
-> Hosted on Render's free plan. If nobody has used it recently, the first load can take 30–60 seconds while the server wakes up.
+[![Tests](https://github.com/ashoktanakanti/multi-tier-cache-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/ashoktanakanti/multi-tier-cache-engine/actions/workflows/tests.yml)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![Redis](https://img.shields.io/badge/Redis-L2_cache-DC382D?logo=redis&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Render-2496ED?logo=docker&logoColor=white)
+
+[**Live demo**](https://multi-tier-cache-engine.onrender.com) · [API docs](https://multi-tier-cache-engine.onrender.com/docs) · [How it works](#the-idea-in-one-minute) · [Benchmark](#does-the-cache-actually-help-benchmark) · [Run locally](#run-it-on-your-computer)
+
+</div>
+
+| ~70% | ~3,000× | 46 |
+|:---:|:---:|:---:|
+| fewer database queries with realistic traffic | faster: cache hit vs database query | automated tests, run on every push |
+
+> The live demo is hosted on Render's free plan. If nobody has used it recently, the first load can take 30–60 seconds while the server wakes up.
 
 A portfolio website for a bank's clients that answers quickly because it **remembers answers it has already worked out**. This is called *caching*. The dashboard lets you watch every request travel through the cache live.
 
@@ -88,7 +106,7 @@ Fire 100–1,000 real requests and watch the hit ratio climb.
 
 ## Does the cache actually help? (benchmark)
 
-`python benchmark.py` runs 1,000 operations over 500 accounts with a small 64-item L1 cache, in three situations:
+`src/backend/benchmark.py` runs 1,000 operations over 500 accounts with a small 64-item L1 cache, in three situations:
 
 | Traffic pattern | Setup | Hit ratio | Database queries | Typical read |
 |---|---|---|---|---|
@@ -118,24 +136,41 @@ Timings vary between runs on a laptop; hit ratio and query counts don't, so thos
 
 | Part | Technology | Where |
 |---|---|---|
-| L1 cache (LRU and LFU, written from scratch) | Python: hash map + doubly linked list / frequency buckets, O(1) | `cache_engine/lru.py`, `cache_engine/lfu.py` |
-| L2 cache | Redis (JSON values, 5-minute expiry) | `cache_engine/redis_tier.py` |
-| Cache logic (L1 → L2 → L3) | Python | `cache_engine/tiered.py` |
-| Database | SQLite, plain SQL | `portfolio/schema.sql`, `portfolio/db.py` |
-| Business logic | Python | `portfolio/service.py` |
-| REST API | FastAPI | `portfolio/api.py` |
-| Dashboard | React + Tailwind CSS | `frontend/` |
+| L1 cache (LRU and LFU, written from scratch) | Python: hash map + doubly linked list / frequency buckets, O(1) | `src/backend/cache_engine/lru.py`, `lfu.py` |
+| L2 cache | Redis (JSON values, 5-minute expiry) | `src/backend/cache_engine/redis_tier.py` |
+| Cache logic (L1 → L2 → L3) | Python | `src/backend/cache_engine/tiered.py` |
+| Database | SQLite, plain SQL | `src/backend/portfolio/schema.sql`, `db.py` |
+| Business logic | Python | `src/backend/portfolio/service.py` |
+| REST API | FastAPI | `src/backend/portfolio/api.py` |
+| Dashboard | React + Tailwind CSS | `src/frontend/` |
 | Tests | pytest (46 tests) + GitHub Actions | `tests/`, `.github/workflows/` |
 | Deployment | Docker on Render | `Dockerfile`, `render.yaml` |
 
 ```
-cache_engine/      the cache itself (knows nothing about portfolios)
-portfolio/         database, business logic and API
-frontend/          React dashboard
-tests/             automated tests
-benchmark.py       the performance comparison above
-data/              benchmark results (the database is generated, not stored)
-docs/screenshots/  images used in this README
+src/
+├── backend/                  Python: everything the server runs
+│   ├── cache_engine/         the cache itself (knows nothing about portfolios)
+│   │   ├── lru.py            LRU cache, built from scratch
+│   │   ├── lfu.py            LFU cache, built from scratch
+│   │   ├── redis_tier.py     Redis (L2) wrapper
+│   │   └── tiered.py         L1 → L2 → L3 lookup, invalidation, stats
+│   ├── portfolio/            the banking app that uses the cache
+│   │   ├── schema.sql        database tables
+│   │   ├── seed.py           generates the demo data
+│   │   ├── db.py             all SQL queries
+│   │   ├── service.py        portfolio summary, trades, price updates
+│   │   └── api.py            REST API (FastAPI)
+│   ├── benchmark.py          the performance comparison above
+│   └── data/                 benchmark results (the database is generated, not stored)
+└── frontend/                 React dashboard (Vite + Tailwind)
+    └── src/
+        ├── components/       sidebar, cache tiers, playground tabs, engine log
+        ├── views/            Accounts, Benchmark, Design notes pages
+        └── lib/api.js        calls to the backend
+
+tests/                        46 automated tests (pytest)
+docs/screenshots/             images used in this README
+Dockerfile, render.yaml       deployment on Render
 ```
 
 ---
@@ -150,11 +185,12 @@ python -m venv .venv
 .venv\Scripts\activate              # Mac/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Create the demo database (500 accounts, 1 year of prices, ~5 seconds)
-python -m portfolio.seed
-
-# 3. Run the tests (should say "46 passed")
+# 2. Run the tests from the project root (should say "46 passed")
 pytest
+
+# 3. Go to the backend folder and create the demo database (~5 seconds)
+cd src/backend
+python -m portfolio.seed
 
 # 4. Start the API, using a fake in-memory Redis so you don't need to install Redis
 #    Windows PowerShell:  $env:REDIS_URL="memory://"
@@ -162,7 +198,7 @@ pytest
 uvicorn portfolio.api:app --port 8000
 
 # 5. In a second terminal, start the dashboard
-cd frontend
+cd src/frontend
 npm install
 npm run dev                          # open http://localhost:5173
 ```
@@ -172,7 +208,8 @@ npm run dev                          # open http://localhost:5173
 - `CACHE_POLICY`: `lru` (default) or `lfu`
 - `L1_CAPACITY`: how many summaries L1 can hold (default 256)
 
-To reset the demo data, run `python -m portfolio.seed` again and restart the API.
+To reset the demo data, run `python -m portfolio.seed` again (inside `src/backend`) and restart the API.
+To rerun the benchmark: `python benchmark.py` inside `src/backend`.
 
 ---
 

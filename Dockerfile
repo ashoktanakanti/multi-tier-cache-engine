@@ -1,21 +1,21 @@
 # Stage 1: build the React dashboard
 FROM node:22-slim AS frontend
-WORKDIR /app/frontend
-COPY frontend/package.json frontend/package-lock.json ./
+WORKDIR /app/src/frontend
+COPY src/frontend/package.json src/frontend/package-lock.json ./
 RUN npm ci
-COPY frontend/ ./
+COPY src/frontend/ ./
 RUN npm run build
 
 # Stage 2: Python API that also serves the built dashboard
+# (same folder layout as the repo, so the API finds src/frontend/dist)
 FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY cache_engine/ cache_engine/
-COPY portfolio/ portfolio/
-COPY data/benchmark_results.json data/
-COPY --from=frontend /app/frontend/dist frontend/dist
+COPY src/backend/ src/backend/
+COPY --from=frontend /app/src/frontend/dist src/frontend/dist
 
+WORKDIR /app/src/backend
 # Build the demo database into the image (~5 s)
 RUN python -m portfolio.seed
 
