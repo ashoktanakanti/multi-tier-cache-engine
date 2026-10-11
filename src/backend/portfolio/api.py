@@ -186,6 +186,6 @@ def benchmark_results():
 
 # In production (Render) the built React app is served from the same server.
 # Registered last, so every API route above takes priority over static files.
-FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"  # src/frontend/dist
 if FRONTEND_DIST.exists():
     app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

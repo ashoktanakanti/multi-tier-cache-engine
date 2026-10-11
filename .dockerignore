@@ -4,7 +4,7 @@
 .github
 **/__pycache__
 .pytest_cache
-data/portfolio.db
-frontend/node_modules
-frontend/dist
+src/backend/data/portfolio.db
+src/frontend/node_modules
+src/frontend/dist
 tests

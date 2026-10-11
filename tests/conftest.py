@@ -1,14 +1,10 @@
-import sys
 from datetime import date
-from pathlib import Path
 
 import fakeredis
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from cache_engine import RedisTier  # noqa: E402
-from portfolio import db, seed  # noqa: E402
+from cache_engine import RedisTier
+from portfolio import db, seed
 
 
 @pytest.fixture(scope="session")
