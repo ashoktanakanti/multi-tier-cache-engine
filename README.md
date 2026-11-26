@@ -6,6 +6,15 @@ A three-tier cache in front of a portfolio valuation API. The tiers are an in-pr
 
 [Live demo](https://multi-tier-cache-engine.onrender.com) · [API docs](https://multi-tier-cache-engine.onrender.com/docs)
 
+**Stack:** Python 3.12, FastAPI, Redis, SQLite, React, Vite, Tailwind CSS, pytest, GitHub Actions, Docker
+
+**Highlights**
+
+- On popular-account traffic, **69% (LRU) to 74% (LFU) of reads never reached the database**, and the median read dropped from about 36 ms to 0.012 ms.
+- LRU and LFU caches written from scratch, with O(1) lookups.
+- Handles three classic cache problems: stale copies on other servers, a read/write race, and cache stampedes. Each has its own test.
+- 51 pytest tests run in GitHub Actions on every push.
+
 The live demo runs on Render's free plan, so it may take a while to respond after a period of inactivity.
 
 ![Dashboard overview](docs/screenshots/overview.png)
@@ -18,10 +27,21 @@ Building that summary means joining holdings to prices and reading a year of his
 
 Reads go down the tiers in order. A miss in one tier falls through to the next. A value found in a lower tier is copied back up.
 
+```mermaid
+flowchart LR
+    UI[React dashboard] -->|GET /accounts/id/summary| API[FastAPI]
+    API --> L1[L1: in-process LRU / LFU]
+    L1 -->|miss| L2[L2: Redis]
+    L2 -->|miss| DB[(L3: SQLite)]
+    DB -.->|fill L2 and L1| L1
+    W[Trade or price change] -->|commit, then delete key| L1
+    W -->|delete key| L2
+```
+
 | Tier | Implementation | Median read in the benchmark |
 |---|---|---|
 | L1 | In-process LRU or LFU cache, written from scratch. Thread-safe. Entries expire after 30 s by default. | 0.012 ms (LRU), 0.013 ms (LFU) |
-| L2 | Redis with JSON values and a 5-minute TTL. Calls time out after 50 ms. | Not measured |
+| L2 | Redis with JSON values and a 5-minute TTL. Calls time out after 50 ms. | Not benchmarked (the benchmark measures L1 only) |
 | L3 | SQLite. This is the source of truth. | About 36 ms |
 
 Writes go to the database first. After the commit, the cached summaries for the affected accounts are deleted from L1 and L2. The next read rebuilds them. The cache never updates a value in place.
@@ -89,7 +109,7 @@ What the numbers show:
 - With popular accounts, the cache answered 68.6% of reads with LRU and 74.3% with LFU. Those reads never reached the database.
 - LFU had the higher hit ratio on popular traffic. Its frequency counts keep frequently used accounts from being pushed out by one-off reads.
 - With random traffic, only 64 of 500 accounts fit in L1, so the hit ratio stayed around 13%.
-- In the random run, the average read was slower with LRU (33.2 ms) than with no cache (20.9 ms), even though the medians were close. The benchmark script does not explain the higher average.
+- The averages in `benchmark_results.json` are sensitive to a few slow outliers on the machine that ran them. In that run, the random-traffic average with LRU (33.2 ms) was above no cache (20.9 ms) even though the medians were close. Two reruns on a different machine gave identical hit ratios and query counts, and the LRU average was slightly below no cache (about 5.5 ms vs 5.8 ms). The medians are the more reliable timing figure.
 - Trades invalidate cached summaries, so the write-heavy run had a lower hit ratio, 37.5%.
 
 The hit ratios and query counts come from fixed random seeds, so they should repeat on another machine. Timings depend on the machine.
